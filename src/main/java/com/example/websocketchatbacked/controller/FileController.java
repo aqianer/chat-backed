@@ -6,38 +6,27 @@ import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.stp.StpUtil;
 import com.example.websocketchatbacked.dto.*;
-import com.example.websocketchatbacked.entity.FileOperationLog;
 import com.example.websocketchatbacked.entity.KbDocument;
-import com.example.websocketchatbacked.entity.ProcessResult;
-import com.example.websocketchatbacked.repository.FileOperationLogRepository;
 import com.example.websocketchatbacked.repository.KbDocumentRepository;
-import com.example.websocketchatbacked.service.impl.AsyncTaskService;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.example.websocketchatbacked.service.FileService;
+import com.example.websocketchatbacked.service.impl.FileTransactionServiceImpl;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MaxUploadSizeExceededException;
-import org.springframework.web.multipart.MultipartException;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @RestController
@@ -51,146 +40,47 @@ public class FileController {
     private static final Logger log = LoggerFactory.getLogger(FileController.class);
 
     @Autowired
+    private FileService fileService;
+
+    @Autowired
     private KbDocumentRepository kbDocumentRepository;
 
     @Autowired
-    private FileOperationLogRepository fileOperationLogRepository;
+    private FileTransactionServiceImpl fileTransactionServiceImpl;
 
-    @Value("${file.upload.path}")
-    private String uploadPath;
-
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    @Autowired
-    private AsyncTaskService asyncTaskService;
-
-    @Autowired
-    private StringRedisTemplate stringRedisTemplate;
-
-    private static final String FILE_UPLOAD_TOKEN_PREFIX = "file:upload:token:";
-
-
-    //TODO 可以把预校验接口返回的上传凭证和 SA-Token 的登录态做绑定：预校验通过时，生成一个带用户 ID 和文件哈希的临时 Token，存到 Redis 里并
-    // 设置 5 分钟有效期；调用上传接口时，同时传 SA-Token 和这个临时 Token，后端先校验登录态，再校验临时 Token 的有效性和一致性，这样既能防止越权上传，也能确保每个上传请求都经过了预校验。
-    // 请在文件上传流程中实现分片哈希计算 + 预校验的完整逻辑：首先使用 spark-md5 对文件进行分片计算并展示进度条，哈希生成后调用后端的预校验接口 /api/file/check；如果返回 ' 文件已存在 ' 则弹窗提示并显示跳转链接，
-    // 如果返回 ' 允许上传 ' 及临时凭证 token，则携带 token 调用原上传接口 /api/file/upload 完成上传
-    @PostMapping("/file/check")
+    /**
+     * 可以把预校验接口返回的上传凭证和 SA-Token 的登录态做绑定：预校验通过时，生成一个带用户 ID 和文件哈希的临时 Token，存到 Redis 里并
+     * 设置 5 分钟有效期；调用上传接口时，同时传 SA-Token 和这个临时 Token，后端先校验登录态，再校验临时 Token 的有效性和一致性，这样既能防止越权上传，也能确保每个上传请求都经过了预校验。
+     * 请在文件上传流程中实现分片哈希计算 + 预校验的完整逻辑：首先使用 spark-md5 对文件进行分片计算并展示进度条，哈希生成后调用后端的预校验接口 /api/file/check；如果返回 ' 文件已存在 ' 则弹窗提示并显示跳转链接，
+     * 如果返回 ' 允许上传 ' 及临时凭证 token，则携带 token 调用原上传接口 /api/file/upload 完成上传
+     */
+    @PostMapping("/file/check/batch")
     @SaCheckLogin
-    public ApiResponse<FileCheckResponse> checkFile(@RequestBody FileCheckRequest request) {
-        try {
-            Long userId = StpUtil.getLoginIdAsLong();
-
-            if (request.getFileHash() == null || request.getFileHash().isEmpty()) {
-                return ApiResponse.error(400, "文件哈希值不能为空");
-            }
-
-            Optional<KbDocument> existingDocument = kbDocumentRepository.findByFileHash(request.getFileHash());
-            if (existingDocument.isPresent()) {
-                KbDocument doc = existingDocument.get();
-                return ApiResponse.success(FileCheckResponse.exists(doc.getId()));
-            }
-
-            String token = UUID.randomUUID().toString();
-            String tokenKey = FILE_UPLOAD_TOKEN_PREFIX + token;
-            String tokenValue = userId + ":" + request.getFileHash();
-            stringRedisTemplate.opsForValue().set(tokenKey, tokenValue, 5, TimeUnit.MINUTES);
-
-            return ApiResponse.success(FileCheckResponse.notExists(token));
-
-        } catch (NotLoginException e) {
-            return ApiResponse.error(401, "未授权，请先登录");
-        } catch (Exception e) {
-            return ApiResponse.error(500, "文件校验失败：" + e.getMessage());
-        }
+    public ApiResponse<BatchFileCheckResponse> checkFiles(@RequestBody BatchFileCheckRequest request) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        List<FileCheckResultItem> results = fileService.checkFilesService(request, userId);
+        return ApiResponse.success(new BatchFileCheckResponse(results));
     }
 
-    @PostMapping("/documents/upload")
+    @PostMapping("/documents/upload/batch")
     @SaCheckLogin
     @SaCheckPermission("3")
-    public ApiResponse<BatchUploadResponseDTO> uploadFile(
-            @RequestParam(value = "files[]", required = false) List<MultipartFile> files,
-            @RequestParam(value = "batchConfig", required = false) String batchConfigJson) {
-        try {
-            Long userId = StpUtil.getLoginIdAsLong();
+    public ApiResponse<BatchUploadResponse> uploadFiles(@ModelAttribute BatchUploadRequest request) {
 
-            if (files == null || files.isEmpty()) {
-                return ApiResponse.error(400, "请选择要上传的文件");
-            }
+        // TODO 批量上传接口 接入AsyncTaskService
 
-            if (files.size() > MAX_FILE_COUNT) {
-                return ApiResponse.error(400, "文件数量超出限制，最多支持 " + MAX_FILE_COUNT + " 个文件");
-            }
+        log.info("接收到批量上传请求");
+        log.info("files参数：{}", request.getFiles());
+        log.info("hashes参数：{}", request.getHashes());
+        log.info("tokens参数：{}", request.getTokens());
+        log.info("batchConfig参数：{}", request.getBatchConfig());
 
-            BatchConfigDTO batchConfig = null;
-            if (batchConfigJson != null && !batchConfigJson.isEmpty()) {
-                try {
-                    batchConfig = objectMapper.readValue(batchConfigJson, BatchConfigDTO.class);
-                } catch (Exception e) {
-                    return ApiResponse.error(400, "batchConfig 格式错误");
-                }
-            }
+        Long userId = StpUtil.getLoginIdAsLong();
+        log.info("当前用户ID：{}", userId);
 
-            List<UploadedFileDTO> uploadedFiles = new ArrayList<>();
-            List<UploadErrorDTO> errors = new ArrayList<>();
-            int successCount = 0;
-            int failCount = 0;
+        List<UploadResultItem> results = fileService.filesUploadService(request, userId);
 
-            for (MultipartFile file : files) {
-                if (!file.isEmpty()) {
-                    String storagePath = null;
-                    try {
-                        validateFileType(file.getOriginalFilename());
-                        validateFileSize(file.getSize(), MAX_SINGLE_FILE_SIZE, "单个文件");
-
-                        storagePath = saveFile(file);
-                        Long fileId = saveFileRecord(file, userId, storagePath, batchConfig != null ? Long.valueOf(batchConfig.getKnowledgeBaseId()) : null);
-                        logOperation(userId, fileId, "upload", null, "success", null);
-
-                        KbDocument kbDocument = kbDocumentRepository.findById(fileId).orElse(null);
-                        if (kbDocument != null) {
-                            UploadedFileDTO uploadedFile = new UploadedFileDTO(
-                                    fileId,
-                                    file.getOriginalFilename(),
-                                    file.getSize(),
-                                    kbDocument.getCreateTime().format(DATE_TIME_FORMATTER),
-                                    "success"
-                            );
-                            uploadedFiles.add(uploadedFile);
-                            successCount++;
-                        }
-                    } catch (Exception e) {
-                        failCount++;
-                        errors.add(new UploadErrorDTO(file.getOriginalFilename(), e.getMessage()));
-
-                        if (storagePath != null) {
-                            try {
-                                Path filePath = Paths.get(storagePath);
-                                if (Files.exists(filePath)) {
-                                    Files.delete(filePath);
-                                }
-                            } catch (IOException deleteEx) {
-                                logOperation(userId, null, "cleanup", null, "failed", "删除文件失败: " + deleteEx.getMessage());
-                            }
-                        }
-                    }
-                }
-            }
-
-            BatchUploadResponseDTO response = new BatchUploadResponseDTO(successCount, failCount, uploadedFiles, errors);
-            return new ApiResponse<>(200, "上传成功", response);
-
-        } catch (NotLoginException e) {
-            return ApiResponse.error(401, "未授权，请先登录");
-        } catch (NotPermissionException e) {
-            return ApiResponse.error(403, "权限不足，仅超级管理员可操作");
-        } catch (MaxUploadSizeExceededException e) {
-            return ApiResponse.error(400, "文件大小超出限制");
-        } catch (MultipartException e) {
-            return ApiResponse.error(400, "文件上传失败：" + e.getMessage());
-        } catch (Exception e) {
-            return ApiResponse.error(500, "上传失败：" + e.getMessage());
-        }
+        return ApiResponse.success(new BatchUploadResponse(results));
     }
 
     @GetMapping("/file/list")
@@ -243,7 +133,7 @@ public class FileController {
             }
 
             kbDocumentRepository.deleteById(id);
-            logOperation(userId, id, "delete", request.getRemoteAddr(), "success", null);
+            fileTransactionServiceImpl.logOperation(userId, id, "delete", request.getRemoteAddr(), "success", null);
 
             return ApiResponse.success(null);
 
@@ -285,14 +175,14 @@ public class FileController {
                         }
 
                         kbDocumentRepository.deleteById(id);
-                        logOperation(userId, id, "delete", httpRequest.getRemoteAddr(), "success", null);
+                        fileTransactionServiceImpl.logOperation(userId, id, "delete", httpRequest.getRemoteAddr(), "success", null);
                         successCount++;
                     } else {
                         failCount++;
                     }
                 } catch (Exception e) {
                     failCount++;
-                    logOperation(userId, id, "delete", httpRequest.getRemoteAddr(), "failed", e.getMessage());
+                    fileTransactionServiceImpl.logOperation(userId, id, "delete", httpRequest.getRemoteAddr(), "failed", e.getMessage());
                 }
             }
 
@@ -332,7 +222,7 @@ public class FileController {
             Resource resource = new FileSystemResource(filePath.toFile());
             String contentType = getMimeType(kbDocument.getFileType());
 
-            logOperation(userId, id, "download", request.getRemoteAddr(), "success", null);
+            fileTransactionServiceImpl.logOperation(userId, id, "download", request.getRemoteAddr(), "success", null);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
@@ -351,16 +241,11 @@ public class FileController {
     @SaCheckPermission("3")
     public ResponseEntity<Resource> previewDocument(
             @PathVariable Long documentId,
-            @RequestParam String verifyCode,
             HttpServletRequest request) {
         try {
             Long userId = StpUtil.getLoginIdAsLong();
 
             if (documentId == null || documentId <= 0) {
-                return ResponseEntity.badRequest().build();
-            }
-
-            if (verifyCode == null || verifyCode.isEmpty()) {
                 return ResponseEntity.badRequest().build();
             }
 
@@ -385,7 +270,7 @@ public class FileController {
                 return handleRangeRequest(resource, rangeHeader, fileSize, contentType, kbDocument.getFileName());
             }
 
-            logOperation(userId, documentId, "preview", request.getRemoteAddr(), "success", null);
+            fileTransactionServiceImpl.logOperation(userId, documentId, "preview", request.getRemoteAddr(), "success", null);
 
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
@@ -401,67 +286,6 @@ public class FileController {
         }
     }
 
-    private void validateFileType(String filename) {
-        if (filename == null || filename.isEmpty()) {
-            throw new IllegalArgumentException("文件名不能为空");
-        }
-        String extension = getFileExtension(filename);
-        if (!ALLOWED_FILE_TYPES.contains(extension.toLowerCase())) {
-            throw new IllegalArgumentException("不支持的文件类型：" + extension);
-        }
-    }
-
-    private void validateFileSize(long fileSize, long maxSize, String type) {
-        if (fileSize > maxSize) {
-            throw new IllegalArgumentException(type + "大小超出限制，最大允许：" + (maxSize / 1024 / 1024) + "MB");
-        }
-    }
-
-    private String saveFile(MultipartFile file) throws IOException {
-        String originalFilename = file.getOriginalFilename();
-        String extension = getFileExtension(originalFilename);
-        String newFileName = UUID.randomUUID().toString() + "." + extension;
-
-        Path uploadDir = Paths.get(uploadPath);
-        if (!Files.exists(uploadDir)) {
-            Files.createDirectories(uploadDir);
-        }
-
-        Path filePath = uploadDir.resolve(newFileName);
-        file.transferTo(filePath.toFile());
-
-        return filePath.toString();
-    }
-
-    private Long saveFileRecord(MultipartFile file, Long userId, String storagePath, Long kbId) {
-        KbDocument kbDocument = new KbDocument();
-        kbDocument.setUserId(userId);
-        kbDocument.setFileName(file.getOriginalFilename());
-        kbDocument.setStoragePath(storagePath);
-        kbDocument.setFileSize(file.getSize());
-        kbDocument.setFileType(getFileExtension(file.getOriginalFilename()).toUpperCase());
-        kbDocument.setChunkCount(0);
-        kbDocument.setStatus((byte) 1);
-        kbDocument.setCurrentStep((byte) 1);
-        kbDocument.setCreateTime(LocalDateTime.now());
-        kbDocument.setUpdateTime(LocalDateTime.now());
-
-        KbDocument savedDocument = kbDocumentRepository.save(kbDocument);
-        return savedDocument.getId();
-    }
-
-    private void logOperation(Long userId, Long fileId, String operationType, String ipAddress, String status, String errorMessage) {
-        FileOperationLog log = new FileOperationLog();
-        log.setUserId(userId);
-        log.setDocId(fileId);
-        log.setOperationType(operationType);
-        log.setOperationTime(LocalDateTime.now());
-        log.setIpAddress(ipAddress);
-        log.setStatus(status);
-        log.setErrorMessage(errorMessage);
-        fileOperationLogRepository.save(log);
-    }
-
     private String getMimeType(String extension) {
         Map<String, String> mimeTypes = new HashMap<>();
         mimeTypes.put("doc", "application/msword");
@@ -472,16 +296,6 @@ public class FileController {
         return mimeTypes.getOrDefault(extension.toLowerCase(), "application/octet-stream");
     }
 
-    private String getFileExtension(String filename) {
-        if (filename == null || filename.isEmpty()) {
-            return "";
-        }
-        int lastDotIndex = filename.lastIndexOf('.');
-        if (lastDotIndex == -1 || lastDotIndex == filename.length() - 1) {
-            return "";
-        }
-        return filename.substring(lastDotIndex + 1);
-    }
 
     private ResponseEntity<Resource> handleRangeRequest(Resource resource, String rangeHeader, long fileSize, String contentType, String filename) {
         try {

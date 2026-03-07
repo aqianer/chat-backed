@@ -48,9 +48,6 @@ public class KbDocument {
     @Column(name = "update_time", nullable = false)
     private LocalDateTime updateTime;
 
-    @OneToMany(mappedBy = "document", fetch = FetchType.LAZY, cascade = CascadeType.ALL)
-    private List<KbDocumentRelation> knowledgeBaseRelations;
-
     public Long getId() {
         return id;
     }
@@ -155,11 +152,4 @@ public class KbDocument {
         this.updateTime = updateTime;
     }
 
-    public List<KbDocumentRelation> getKnowledgeBaseRelations() {
-        return knowledgeBaseRelations;
-    }
-
-    public void setKnowledgeBaseRelations(List<KbDocumentRelation> knowledgeBaseRelations) {
-        this.knowledgeBaseRelations = knowledgeBaseRelations;
-    }
 }

@@ -194,32 +194,10 @@ public class KnowledgeBaseServiceImpl implements KnowledgeBaseService {
         int size = pageSize != null && pageSize > 0 ? pageSize : 10;
 
         Pageable pageable = PageRequest.of(pageNum - 1, size);
-        Page<KbDocumentRelation> relationPage;
 
-        if (keyword != null && !keyword.isEmpty()) {
-            relationPage = kbDocumentRelationRepository.findByKbIdAndDocumentNameContaining(kbId, keyword, pageable);
-        } else {
-            relationPage = kbDocumentRelationRepository.findByKbId(kbId, pageable);
-        }
+        Page<DocumentDTO>  dtoList = kbDocumentRelationRepository.findDocByKbId(kbId, pageable);
 
-        List<DocumentDTO> dtoList = relationPage.getContent().stream().map(relation -> {
-            KbDocument doc = relation.getDocument();
-            if (doc == null) {
-                return null;
-            }
-            DocumentDTO dto = new DocumentDTO();
-            dto.setId(doc.getId());
-            dto.setFileName(doc.getFileName());
-            dto.setUploader("系统");
-            dto.setUploadTime(doc.getCreateTime() != null ? DATETIME_FORMATTER.format(doc.getCreateTime()) : "");
-            dto.setChunkCount(doc.getChunkCount() != null ? doc.getChunkCount() : 0);
-            dto.setVectorStatus(doc.getChunkCount() != null && doc.getChunkCount() > 0 ? "已向量化" : "未向量化");
-            dto.setFileSize(formatFileSize(doc.getFileSize()));
-            dto.setFileType(doc.getFileType());
-            return dto;
-        }).filter(dto -> dto != null).collect(Collectors.toList());
-
-        return new PageResponse<>(dtoList, relationPage.getTotalElements());
+        return new PageResponse<>(dtoList.getContent(), dtoList.getTotalElements());
     }
 
     @Override

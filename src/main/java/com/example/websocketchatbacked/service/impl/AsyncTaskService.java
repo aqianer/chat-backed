@@ -2,6 +2,7 @@ package com.example.websocketchatbacked.service.impl;
 
 import com.example.websocketchatbacked.controller.ws.FileParseEndpoint;
 import com.example.websocketchatbacked.dto.BatchConfigDTO;
+import com.example.websocketchatbacked.dto.UploadResultItem;
 import com.example.websocketchatbacked.dto.UploadedFileDTO;
 import com.example.websocketchatbacked.entity.*;
 import com.example.websocketchatbacked.factory.ParserFactory;
@@ -11,6 +12,7 @@ import com.example.websocketchatbacked.repository.FileOperationLogRepository;
 import com.example.websocketchatbacked.repository.KbChunkRepository;
 import com.example.websocketchatbacked.repository.KbDocumentRepository;
 import com.example.websocketchatbacked.repository.es.EsChunkRepository;
+import com.example.websocketchatbacked.service.FileTransactionService;
 import com.example.websocketchatbacked.splitter.FileSplitter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -34,6 +36,9 @@ import java.util.concurrent.CompletableFuture;
 public class AsyncTaskService {
 
     private static final Logger log = LoggerFactory.getLogger(AsyncTaskService.class);
+
+    @Autowired
+    private FileTransactionService fileTransactionService;
 
     @Autowired
     private KbDocumentRepository kbDocumentRepository;
@@ -60,7 +65,7 @@ public class AsyncTaskService {
     private SplitterFactory splitFactory;
 
     private static final Set<String> ALLOWED_FILE_TYPES = new HashSet<>(Arrays.asList("doc", "docx", "pdf", "txt", "md"));
-    private static final long MAX_SINGLE_FILE_SIZE = 100 * 1024 * 1024;
+
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Async("chunkExecutor")
@@ -137,72 +142,40 @@ public class AsyncTaskService {
 
     /**
      * 异步上传文件方法
-     *
-     * @param file            要上传的文件（MultipartFile类型）
-     * @param userId          上传用户ID
-     * @param batchConfigJson 批量配置DTO（包含知识库ID等）
-     * @return UploadResult 异步结果，包含上传状态和文件信息
+     * @param file
+     * @param userId
+     * @param knowledgeBaseId
+     * @return
      */
-    @Async("uploadExecutor") // 指定自定义线程池
-    public UploadResult uploadFile(MultipartFile file, Long userId, String batchConfigJson) {
+    @Async("uploadExecutor")
+    public CompletableFuture<UploadResultItem> uploadFile(MultipartFile file, Long userId, Long knowledgeBaseId, String hash,String fileType) {
         // 初始化返回结果
-        UploadResult result = new UploadResult();
+        UploadResultItem result = new UploadResultItem();
         String originalFileName = file.getOriginalFilename();
         String storagePath = null;
         Long fileId = null;
 
         try {
-            // 1. 空文件校验
-            if (file.isEmpty()) {
-                throw new IllegalArgumentException("上传文件为空：" + originalFileName);
-            }
-
-            // 2. 文件类型校验
-            validateFileType(originalFileName);
-            // 3. 文件大小校验
-            validateFileSize(file.getSize(), MAX_SINGLE_FILE_SIZE, "单个文件");
-
-            // 4. 保存文件到本地服务器
+            // 保存文件到本地服务器
             storagePath = saveFile(file);
             log.info("文件{}已保存到本地路径：{}", originalFileName, storagePath);
 
-            BatchConfigDTO batchConfig = null;
-            if (batchConfigJson != null && !batchConfigJson.isEmpty()) {
-                batchConfig = objectMapper.readValue(batchConfigJson, BatchConfigDTO.class);
+            // 调用事务方法
+            fileId = fileTransactionService.saveFileRecord(file, userId, storagePath, knowledgeBaseId, hash, fileType);
+            log.info("文件{}已保存到数据库，ID为：{}", originalFileName, fileId);
+            result.setDocumentId(fileId);
 
-            }
-
-            // 5. 保存文件记录到数据库
-            Long knowledgeBaseId = batchConfig != null ? Long.valueOf(batchConfig.getKnowledgeBaseId()) : null;
-            fileId = saveFileRecord(file, userId, storagePath, knowledgeBaseId);
-            logOperation(userId, fileId, "upload", null, "success", null);
-
-            // 6. 封装文件DTO（赋值到result，供前端使用）
-            Long finalFileId = fileId;
-            KbDocument kbDocument = kbDocumentRepository.findById(fileId).orElseThrow(
-                    () -> new RuntimeException("文件记录保存后未查询到：fileId=" + finalFileId)
-            );
-            UploadedFileDTO uploadedFile = new UploadedFileDTO(
-                    fileId,
-                    originalFileName,
-                    file.getSize(),
-                    kbDocument.getCreateTime().format(DATE_TIME_FORMATTER),
-                    "success"
-            );
-            // 可选：将DTO存入result（需给UploadResult添加对应字段）
-            result.setUploadedFile(uploadedFile);
-
-            // 7. 标记上传成功
+            // 标记上传成功
             result.setSuccess(true);
-            result.setMsg("");
+            result.setMessage("success");
 
         } catch (Exception e) {
             // 捕获所有异常，标记上传失败
             log.error("文件{}上传失败", originalFileName, e);
             result.setSuccess(false);
-            result.setMsg("上传失败：" + e.getMessage());
+            result.setMessage("上传失败：" + e.getMessage());
 
-            // 8. 异常时清理资源：删除文件 + 清理数据库记录
+            // 异常时清理资源：删除文件
             if (storagePath != null) {
                 try {
                     Path filePath = Paths.get(storagePath);
@@ -212,23 +185,15 @@ public class AsyncTaskService {
                     }
                 } catch (IOException deleteEx) {
                     log.error("删除失败文件{}的本地存储失败", storagePath, deleteEx);
-                    logOperation(userId, null, "cleanup", null, "failed", "删除文件失败: " + deleteEx.getMessage());
+                    fileTransactionService.logOperation(userId, null, "cleanup", null, "failed", "删除文件失败: " + deleteEx.getMessage());
                 }
             }
-            if (fileId != null) {
-                try {
-                    deleteFileRecord(fileId); // 新增：删除数据库中已插入的记录
-                    log.info("已清理失败文件的数据库记录：fileId={}", fileId);
-                } catch (Exception deleteDbEx) {
-                    log.error("删除失败文件{}的数据库记录失败", fileId, deleteDbEx);
-                    logOperation(userId, fileId, "cleanup", null, "failed", "删除数据库记录失败: " + deleteDbEx.getMessage());
-                }
-            }
-            logOperation(userId, fileId, "upload", null, "failed", e.getMessage());
+
+            fileTransactionService.logOperation(userId, fileId, "upload", null, "failed", e.getMessage());
         }
 
         // 返回异步结果（如果saveFile是耗时操作，建议用supplyAsync包装核心逻辑）
-        return result;
+        return CompletableFuture.completedFuture(result);
     }
 
     @Async("vectorExecutor")
@@ -237,38 +202,6 @@ public class AsyncTaskService {
         return CompletableFuture.runAsync(() -> {
             // 具体向量化代码
         });
-    }
-
-    private void deleteFileRecord(Long fileId) {
-        kbDocumentRepository.deleteById(fileId);
-    }
-
-    private void validateFileType(String filename) {
-        if (filename == null || filename.isEmpty()) {
-            throw new IllegalArgumentException("文件名不能为空");
-        }
-        String extension = getFileExtension(filename);
-        if (!ALLOWED_FILE_TYPES.contains(extension.toLowerCase())) {
-            throw new IllegalArgumentException("不支持的文件类型：" + extension);
-        }
-    }
-
-    private void validateFileSize(long fileSize, long maxSize, String type) {
-        if (fileSize > maxSize) {
-            throw new IllegalArgumentException(type + "大小超出限制，最大允许：" + (maxSize / 1024 / 1024) + "MB");
-        }
-    }
-
-    private void logOperation(Long userId, Long fileId, String operationType, String ipAddress, String status, String errorMessage) {
-        FileOperationLog log = new FileOperationLog();
-        log.setUserId(userId);
-        log.setDocId(fileId);
-        log.setOperationType(operationType);
-        log.setOperationTime(LocalDateTime.now());
-        log.setIpAddress(ipAddress);
-        log.setStatus(status);
-        log.setErrorMessage(errorMessage);
-        fileOperationLogRepository.save(log);
     }
 
     private String getMimeType(String extension) {
@@ -308,20 +241,5 @@ public class AsyncTaskService {
         return filePath.toString();
     }
 
-    private Long saveFileRecord(MultipartFile file, Long userId, String storagePath, Long kbId) {
-        KbDocument kbDocument = new KbDocument();
-        kbDocument.setUserId(userId);
-        kbDocument.setFileName(file.getOriginalFilename());
-        kbDocument.setStoragePath(storagePath);
-        kbDocument.setFileSize(file.getSize());
-        kbDocument.setFileType(getFileExtension(file.getOriginalFilename()).toUpperCase());
-        kbDocument.setChunkCount(0);
-        kbDocument.setStatus((byte) 1);
-        kbDocument.setCurrentStep((byte) 1);
-        kbDocument.setCreateTime(LocalDateTime.now());
-        kbDocument.setUpdateTime(LocalDateTime.now());
 
-        KbDocument savedDocument = kbDocumentRepository.save(kbDocument);
-        return savedDocument.getId();
-    }
 }

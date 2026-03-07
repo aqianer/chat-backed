@@ -1,9 +1,12 @@
 package com.example.websocketchatbacked.service;
 
-import com.example.websocketchatbacked.dto.PageResponse;
-import com.example.websocketchatbacked.dto.UserListDTO;
+import com.example.websocketchatbacked.dto.*;
+import org.springframework.web.multipart.MultipartFile;
 
-public interface UserService {
+import java.util.List;
 
-    PageResponse<UserListDTO> getUserList(Integer page, Integer pageSize);
+public interface FileService {
+    List<FileCheckResultItem> checkFilesService(BatchFileCheckRequest request, Long userId);
+
+    List<UploadResultItem> filesUploadService(BatchUploadRequest request, Long userId);
 }

@@ -13,6 +13,18 @@ public class DocumentDTO {
     public DocumentDTO() {
     }
 
+    public DocumentDTO(Object id, String fileName, String uploader, String uploadTime, 
+                    Object chunkCount, String vectorStatus, String fileSize, String fileType) {
+        this.id = id != null ? ((Number) id).longValue() : null;
+        this.fileName = fileName;
+        this.uploader = uploader;
+        this.uploadTime = uploadTime;
+        this.chunkCount = chunkCount != null ? ((Number) chunkCount).intValue() : null;
+        this.vectorStatus = vectorStatus;
+        this.fileSize = fileSize;
+        this.fileType = fileType;
+    }
+
     public Long getId() {
         return id;
     }

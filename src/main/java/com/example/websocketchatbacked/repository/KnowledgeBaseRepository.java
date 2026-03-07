@@ -10,6 +10,4 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface KnowledgeBaseRepository extends JpaRepository<KnowledgeBase, Long>, JpaSpecificationExecutor<KnowledgeBase> {
 
-    @Query("SELECT kb FROM KnowledgeBase kb JOIN kb.documentRelations dr WHERE dr.id.kbId = :kbId")
-    KnowledgeBase findWithDocumentsByKbId(@Param("kbId") Long kbId);
 }
