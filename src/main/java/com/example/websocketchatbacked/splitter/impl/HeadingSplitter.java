@@ -1,7 +1,7 @@
 package com.example.websocketchatbacked.splitter.impl;
 
-import com.example.websocketchatbacked.entity.MdParseResult;
-import com.example.websocketchatbacked.entity.ParseResult;
+import com.example.websocketchatbacked.parser.result.MdParseResult;
+import com.example.websocketchatbacked.parser.result.ParseResult;
 import com.example.websocketchatbacked.splitter.FileSplitter;
 import com.vladsch.flexmark.ast.Heading;
 import com.vladsch.flexmark.ast.Text;
@@ -32,6 +32,7 @@ public class HeadingSplitter implements FileSplitter {
 
     @Override
     public List<String> split(ParseResult parseResult) {
+        logger.info("开始标题切分: {}", parseResult);
         List<String> chunks = new ArrayList<>();
         this.chunks = chunks;
         currentChunk = new StringBuilder();
@@ -64,27 +65,53 @@ public class HeadingSplitter implements FileSplitter {
     }
 
     private void handleHeading(Heading heading) {
-        int level = heading.getLevel();
-        String headingText = heading.getText().toString();
-        logger.debug("处理标题：级别 {}，内容 {}", level, headingText);
+        try {
+            int level = heading.getLevel();
+            String headingText;
+            if (heading.getText() != null) {
+                StringBuilder textBuilder = new StringBuilder();
+                for (int i = 0; i < heading.getText().length(); i++) {
+                    textBuilder.append(heading.getText().charAt(i));
+                }
+                headingText = textBuilder.toString();
+            } else {
+                headingText = "";
+            }
+            logger.debug("处理标题：级别 {}，内容 {}", level, headingText);
 
-        if (currentChunk.length() > 0 && level <= currentHeadingLevel) {
-            chunks.add(currentChunk.toString().trim());
-            currentChunk = new StringBuilder();
-        }
+            if (currentChunk.length() > 0 && level <= currentHeadingLevel) {
+                chunks.add(currentChunk.toString().trim());
+                currentChunk = new StringBuilder();
+            }
 
-        for (int i = 0; i < level; i++) {
-            currentChunk.append("#");
+            for (int i = 0; i < level; i++) {
+                currentChunk.append("#");
+            }
+            currentChunk.append(" ").append(headingText).append("\n\n");
+            currentHeadingLevel = level;
+        } catch (Exception e) {
+            logger.error("处理标题时发生异常：错误={}", e.getMessage(), e);
         }
-        currentChunk.append(" ").append(headingText).append("\n\n");
-        currentHeadingLevel = level;
     }
 
     private void handleText(Text text) {
-        String content = text.getChars().toString().trim();
-        if (!content.isEmpty()) {
-            logger.debug("处理文本：{}", content);
-            currentChunk.append(content).append("\n\n");
+        try {
+            if (text.getChars() == null) {
+                return;
+            }
+            
+            StringBuilder contentBuilder = new StringBuilder();
+            for (int i = 0; i < text.getChars().length(); i++) {
+                contentBuilder.append(text.getChars().charAt(i));
+            }
+            String content = contentBuilder.toString().trim();
+            
+            if (!content.isEmpty()) {
+                logger.debug("处理文本：{}", content);
+                currentChunk.append(content).append("\n\n");
+            }
+        } catch (Exception e) {
+            logger.error("处理文本时发生异常：错误={}", e.getMessage(), e);
         }
     }
 

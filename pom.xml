@@ -18,7 +18,7 @@
     <properties>
         <java.version>17</java.version>
         <mysql-connector.version>8.0.28</mysql-connector.version>
-        <spring-ai.version>1.0.0-M2</spring-ai.version>
+        <spring-ai.version>1.1.2</spring-ai.version>
         <alibaba-dashscope.version>1.0.0.2</alibaba-dashscope.version>
         <flink.version>1.16.3</flink.version>
     </properties>
@@ -40,6 +40,19 @@
             <snapshots><enabled>false</enabled></snapshots>
         </repository>
     </repositories>
+
+    <!-- 统一管理 Spring AI 版本（核心！避免版本冲突） -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- 原有 WebSocket 依赖 -->
@@ -103,12 +116,14 @@
             <version>${alibaba-dashscope.version}</version>
         </dependency>
 
+
+
         <!-- Spring AI 核心依赖（稳定版） -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-core</artifactId>
-            <version>${spring-ai.version}</version>
-        </dependency>
+<!--        <dependency>-->
+<!--            <groupId>org.springframework.ai</groupId>-->
+<!--            <artifactId>spring-ai-core</artifactId>-->
+<!--            <version>${spring-ai.version}</version>-->
+<!--        </dependency>-->
 
 
         <dependency>
@@ -152,10 +167,6 @@
             <groupId>co.elastic.clients</groupId>
             <artifactId>elasticsearch-java</artifactId>
             <version>8.10.0</version>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -212,6 +223,24 @@
             <groupId>org.apache.pdfbox</groupId>
             <artifactId>pdfbox</artifactId>
             <version>2.0.29</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.googlecode.juniversalchardet</groupId>
+            <artifactId>juniversalchardet</artifactId>
+            <version>1.0.3</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>dashscope-sdk-java</artifactId>
+            <version>2.22.9</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-simple</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- MapStruct核心 -->

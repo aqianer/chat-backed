@@ -1,8 +1,5 @@
-package com.example.websocketchatbacked.parser;
+package com.example.websocketchatbacked.parser.result;
 
-import com.example.websocketchatbacked.entity.ParseResult;
-
-import java.io.File;
 import java.io.IOException;
 
 public interface FileParser {

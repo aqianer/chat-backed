@@ -1,7 +1,7 @@
 package com.example.websocketchatbacked.splitter.impl;
 
-import com.example.websocketchatbacked.entity.ParseResult;
-import com.example.websocketchatbacked.entity.TextParseResult;
+import com.example.websocketchatbacked.parser.result.ParseResult;
+import com.example.websocketchatbacked.parser.result.TxtParseResult;
 import com.example.websocketchatbacked.splitter.FileSplitter;
 
 import java.util.ArrayList;
@@ -29,8 +29,8 @@ public class FixedLengthSplitter implements FileSplitter {
     public List<String> split(ParseResult parseResult) {
         List<String> chunks = new ArrayList<>();
         String content = null;
-        if (parseResult instanceof TextParseResult) {
-            content= ((TextParseResult) parseResult).getText();
+        if (parseResult instanceof TxtParseResult) {
+            content= ((TxtParseResult) parseResult).getText();
         }
 
         if (content == null || content.trim().isEmpty()) {

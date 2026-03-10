@@ -31,6 +31,12 @@ public class KbChunk {
     @Column(name = "es_doc_id", length = 255)
     private String esDocId;
 
+    @Column(name = "sim_hash", length = 255)
+    private String simHash;
+
+    @Column(name = "master_chunk_id", length = 255)
+    private String masterChunkId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "doc_id", insertable = false, updatable = false)
     private KbDocument document;
@@ -101,6 +107,22 @@ public class KbChunk {
 
     public void setEsDocId(String esDocId) {
         this.esDocId = esDocId;
+    }
+
+    public String getSimHash() {
+        return simHash;
+    }
+
+    public void setSimHash(String simHash) {
+        this.simHash = simHash;
+    }
+
+    public String getMasterChunkId() {
+        return masterChunkId;
+    }
+
+    public void setMasterChunkId(String masterChunkId) {
+        this.masterChunkId = masterChunkId;
     }
 
     public KbDocument getDocument() {

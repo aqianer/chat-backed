@@ -1,4 +1,4 @@
-package com.example.websocketchatbacked.entity;
+package com.example.websocketchatbacked.parser.result;
 
 public interface ParseResult {
 }

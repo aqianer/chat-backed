@@ -1,6 +1,6 @@
 package com.example.websocketchatbacked.splitter;
 
-import com.example.websocketchatbacked.entity.ParseResult;
+import com.example.websocketchatbacked.parser.result.ParseResult;
 
 import java.util.List;
 

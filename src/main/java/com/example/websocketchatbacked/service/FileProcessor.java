@@ -3,7 +3,7 @@
 //import com.example.websocketchatbacked.factory.ParserFactory;
 //import com.example.websocketchatbacked.factory.SplitterFactory;
 //import com.example.websocketchatbacked.model.FileChunk;
-//import com.example.websocketchatbacked.parser.FileParser;
+//import com.example.websocketchatbacked.parser.result.FileParser;
 //import com.example.websocketchatbacked.splitter.FileSplitter;
 //import lombok.Data;
 //import lombok.extern.slf4j.Slf4j;

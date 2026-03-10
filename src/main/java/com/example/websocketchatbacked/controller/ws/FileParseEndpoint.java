@@ -112,7 +112,7 @@ public class FileParseEndpoint {
                     String extractContentStr = data.getExtractContent() != null ? 
                             String.join(",", data.getExtractContent()) : "";
                     
-                    getAsyncTaskService().processChunk(documentId, data.getParseStrategy(), data.getSegmentStrategy());
+                    getAsyncTaskService().processChunk(documentId, data.getParseStrategy(), data.getSegmentStrategy(), data.getKbId());
                     
                     processedCount++;
                     sendDocumentProgressMessage(documentId, "解析完成", processedCount, totalDocuments);

@@ -1,47 +1,29 @@
 package com.example.websocketchatbacked.factory;
 
-import com.example.websocketchatbacked.parser.FileParser;
-import com.example.websocketchatbacked.parser.impl.MarkdownParser;
-//import com.example.websocketchatbacked.parser.impl.PDFParser;
-//import com.example.websocketchatbacked.parser.impl.WordParser;
+import com.example.websocketchatbacked.parser.result.FileParser;
 import org.springframework.stereotype.Component;
 
-import java.util.HashMap;
 import java.util.Map;
 
 @Component
 public class ParserFactory {
-    
-    private final Map<String, FileParser> parsers = new HashMap<>();
-    
-    public ParserFactory() {
-        registerParser(new MarkdownParser());
-//        registerParser(new WordParser());
-//        registerParser(new PDFParser());
-    }
-    
-    public void registerParser(FileParser parser) {
-        parsers.put(parser.getSupportedExtension().toLowerCase(), parser);
+
+    private final Map<String, FileParser> parserMap;
+
+    // 构造方法注入Spring管理的所有FileParser实现类
+    public ParserFactory(Map<String, FileParser> parserMap) {
+        this.parserMap = parserMap;
     }
     
     public FileParser getParser(String fileExtension) {
-        FileParser parser = parsers.get(fileExtension.toLowerCase());
-        if (parser == null) {
-            throw new IllegalArgumentException("Unsupported file extension: " + fileExtension);
-        }
-        return parser;
-    }
-    
-    public FileParser getParserByExtension(String fileExtension) {
-        for (FileParser parser : parsers.values()) {
-            if (parser.supports(fileExtension)) {
-                return parser;
-            }
-        }
-        throw new IllegalArgumentException("Unsupported file extension: " + fileExtension);
-    }
-    
-    public boolean supports(String fileExtension) {
-        return parsers.values().stream().anyMatch(parser -> parser.supports(fileExtension));
+        // 比如把markdownParser的key映射成md，你也可以自定义映射规则
+        String beanName = switch (fileExtension.toLowerCase()) {
+            case "md" -> "markdownParser";
+            case "pdf" -> "pdfParser";
+            case "docx", "doc" -> "wordParser";
+            case "txt" -> "txtParser";
+            default -> throw new IllegalArgumentException("Unsupported file extension: " + fileExtension);
+        };
+        return parserMap.get(beanName);
     }
 }

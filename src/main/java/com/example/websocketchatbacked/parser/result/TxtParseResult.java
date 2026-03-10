@@ -7,6 +7,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Data
-public class TextParseResult implements ParseResult {
+public class TxtParseResult implements ParseResult {
     private String text;
 }

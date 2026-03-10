@@ -1,22 +1,28 @@
 package com.example.websocketchatbacked.service.impl;
 
+import com.alibaba.cloud.ai.dashscope.embedding.DashScopeEmbeddingModel;
 import com.example.websocketchatbacked.controller.ws.FileParseEndpoint;
-import com.example.websocketchatbacked.dto.BatchConfigDTO;
 import com.example.websocketchatbacked.dto.UploadResultItem;
-import com.example.websocketchatbacked.dto.UploadedFileDTO;
-import com.example.websocketchatbacked.entity.*;
+import com.example.websocketchatbacked.entity.EsKbChunk;
+import com.example.websocketchatbacked.entity.KbChunk;
+import com.example.websocketchatbacked.entity.KbDocument;
+import com.example.websocketchatbacked.entity.ProcessResult;
 import com.example.websocketchatbacked.factory.ParserFactory;
 import com.example.websocketchatbacked.factory.SplitterFactory;
-import com.example.websocketchatbacked.parser.FileParser;
+import com.example.websocketchatbacked.parser.result.FileParser;
+import com.example.websocketchatbacked.parser.result.ParseResult;
 import com.example.websocketchatbacked.repository.FileOperationLogRepository;
 import com.example.websocketchatbacked.repository.KbChunkRepository;
 import com.example.websocketchatbacked.repository.KbDocumentRepository;
 import com.example.websocketchatbacked.repository.es.EsChunkRepository;
 import com.example.websocketchatbacked.service.FileTransactionService;
 import com.example.websocketchatbacked.splitter.FileSplitter;
+import com.example.websocketchatbacked.util.SimHashUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
@@ -27,10 +33,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 @Service
 public class AsyncTaskService {
@@ -64,12 +70,13 @@ public class AsyncTaskService {
     @Autowired
     private SplitterFactory splitFactory;
 
-    private static final Set<String> ALLOWED_FILE_TYPES = new HashSet<>(Arrays.asList("doc", "docx", "pdf", "txt", "md"));
+    @Autowired
+    private VectorStore vectorStore;
 
     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     @Async("chunkExecutor")
-    public void processChunk(Long documentId, String parseStrategy, String segmentStrategy) {
+    public void processChunk(Long documentId, String parseStrategy, String segmentStrategy, Long kbId) {
         ProcessResult processResult = new ProcessResult();
         // 初始化返回结果
         processResult.setSuccess(true);
@@ -81,35 +88,40 @@ public class AsyncTaskService {
                     .orElseThrow(() -> new IllegalArgumentException("文档ID " + documentId + " 不存在"));
 
             // 2. 获取对应解析器并解析文档
-            FileParser fileParser = parserFactory.getParser(document.getFileType());
+            FileParser fileParser = parserFactory.getParser(document.getFileType().toLowerCase());
             // 解析器返回纯文本内容（适配PDF/Word/Markdown）、流式处理避免OOM
             ParseResult parseResult = fileParser.parse(document.getStoragePath());
+            log.info("文档{}解析完成，parseResult为{}", documentId, parseResult);
 
-            // 3. 分块处理（根据策略分块）
+            // 3. TODO 分块处理（根据策略分块）
             FileSplitter fileSplitter = splitFactory.getSplitter("heading");
             List<String> splitResult = fileSplitter.split(parseResult);
             log.info("文档{}分块处理开始，共{}行", documentId, splitResult.size());
 
-            // 转换器处理
-            List<KbChunk> chunkResult = new ArrayList<>();
-            List<EsKbChunk> esKbChunkList = new ArrayList<>();
-            for (int i = 0; i < splitResult.size(); i++) {
-                KbChunk chunk = new KbChunk();
-                chunk.setDocId(document.getId());
-                chunk.setContent(splitResult.get(i));
-                chunk.setChunkNum(i);
-                EsKbChunk esKbChunk = EsKbChunk.from(chunk, document);
-                esKbChunkList.add(esKbChunk);
-                chunkResult.add(chunk);
-            }
+            // 使用 Stream 流进行转换器处理
+            List<KbChunk> chunkResult = splitResult.stream()
+                    .map(content -> {
+                        KbChunk chunk = new KbChunk();
+                        chunk.setDocId(document.getId());
+                        chunk.setKbId(kbId);
+                        chunk.setContent(content);
+                        chunk.setChunkNum(splitResult.indexOf(content));
+                        chunk.setSimHash(SimHashUtil.getSimHash(content));
+                        return chunk;
+                    })
+                    .collect(Collectors.toList());
 
             log.info("文档{}分块处理完成，共生成{}个分块", documentId, chunkResult.size());
             // TODO 实现事务支持
+
+            // TODO 更新表结构以后会多出计算sim_hash和比较相似分块的过程，相似的分块值存首次保存的分块内容 ，后续相似分块直接用一个master_chunk_id 字段去指向，都需要记录 metadata
             // 4. 持久化存储
-            // 4.1 写入MySQL（存储分块元数据）
-            kbChunkRepository.saveAll(chunkResult);
-            // 4.2 写入ES（用于检索，可转成ES实体）
-            esChunkRepository.bulkSave(esKbChunkList);
+            // 写入MySQL（存储分块元数据）
+            List<KbChunk> kbChunks = kbChunkRepository.saveAll(chunkResult);
+            List<EsKbChunk> esChunks = kbChunks.stream().map(chunk -> EsKbChunk.from(chunk, document)).collect(Collectors.toList());
+
+            // 写入ES（用于检索，可转成ES实体）
+            esChunkRepository.bulkSave(esChunks);
 
             // 5. 设置成功结果
             processResult.setChunkResult(chunkResult);
@@ -142,13 +154,14 @@ public class AsyncTaskService {
 
     /**
      * 异步上传文件方法
+     *
      * @param file
      * @param userId
      * @param knowledgeBaseId
      * @return
      */
     @Async("uploadExecutor")
-    public CompletableFuture<UploadResultItem> uploadFile(MultipartFile file, Long userId, Long knowledgeBaseId, String hash,String fileType) {
+    public CompletableFuture<UploadResultItem> uploadFile(MultipartFile file, Long userId, Long knowledgeBaseId, String hash, String fileType) {
         // 初始化返回结果
         UploadResultItem result = new UploadResultItem();
         String originalFileName = file.getOriginalFilename();
@@ -197,10 +210,23 @@ public class AsyncTaskService {
     }
 
     @Async("vectorExecutor")
-    public CompletableFuture<Void> generateVector(String chunkId) {
-        // 向量化逻辑
-        return CompletableFuture.runAsync(() -> {
-            // 具体向量化代码
+    public void generateVectorsForDocuments(Long documentId) {
+        CompletableFuture.runAsync(() -> {
+            log.info("开始向量化文档，文档ID：{}", documentId);
+
+            try {
+                List<KbChunk> chunks = kbChunkRepository.findByDocIdOrderByChunkNum(documentId);
+                log.info("文档ID {} 找到 {} 个分块", documentId, chunks.size());
+
+                // 注意判空,如果分块内容是空的就代表的是已经向量化
+                List<Document> documents = chunks.stream().filter(chunk -> chunk.getContent() != null && !chunk.getContent().isEmpty()).map(chunk -> new Document(chunk.getId().toString(), chunk.getContent(), new HashMap<>())).toList();
+                vectorStore.add(documents);
+                log.info("文档ID {} 所有分块向量化完成", documentId);
+            } catch (Exception e) {
+                log.error("文档ID {} 向量化失败", documentId, e);
+            }
+
+            log.info("所有文档向量化任务完成");
         });
     }
 

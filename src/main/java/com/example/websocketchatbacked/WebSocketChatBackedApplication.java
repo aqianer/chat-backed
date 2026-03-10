@@ -7,9 +7,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 
-@SpringBootApplication(exclude = {
-    org.springframework.cloud.function.context.config.ContextFunctionCatalogAutoConfiguration.class
-})
+@SpringBootApplication
 public class WebSocketChatBackedApplication {
 
     private final ChatClient.Builder chatClientBuilder;

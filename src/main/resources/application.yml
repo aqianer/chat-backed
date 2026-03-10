@@ -38,6 +38,32 @@ spring:
           model: qwen3-max
           # 可选参数：温度值，控制生成随机性
           temperature: 0.7
+      embedding:
+        options:
+          base-url: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
+          model: text-embedding-v3
+          fallback:
+            enabled: true
+            model: text-embedding-v3
+          retry:
+            max-attempts: 3
+            initial-delay-ms: 1000
+            multiplier: 2.0
+            max-delay-ms: 10000
+    vectorstore:
+      milvus:
+        client:
+          host: localhost      # Milvus 服务地址
+          port: 19530          # Milvus 默认端口
+        collection-name: demo_vector_collection  # 集合名称（类似表名）
+        embedding-dimension: 1024                # 必须与嵌入模型维度一致（智谱 embedding-2 是 1024）
+        index-type: IVF_FLAT                     # 1.1.2 推荐新手使用的索引类型
+        metric-type: COSINE                      # 余弦相似度（1.1.2 校验更严格）
+        initialize-schema: true                  # 1.1.2 自动创建集合/索引（核心特性，M2 版无）
+        id-field-name: chunk_id                 # 自定义主键字段名
+        auto-id: false                           # 1.1.2 修复了自定义ID失效问题
+        consistency-level: STRONG                # 1.1.2 新增一致性级别配置
+
   kafka:
     bootstrap-servers: kafka-broker-1:29092,kafka-broker-2:29093
     consumer:

@@ -1,13 +1,14 @@
 package com.example.websocketchatbacked.parser.impl;
 
-import com.example.websocketchatbacked.entity.MdParseResult;
-import com.example.websocketchatbacked.entity.ParseResult;
-import com.example.websocketchatbacked.parser.FileParser;
+import com.example.websocketchatbacked.parser.result.MdParseResult;
+import com.example.websocketchatbacked.parser.result.ParseResult;
+import com.example.websocketchatbacked.parser.result.FileParser;
 import com.vladsch.flexmark.ext.gfm.strikethrough.StrikethroughExtension;
 import com.vladsch.flexmark.ext.gfm.tasklist.TaskListExtension;
 import com.vladsch.flexmark.ext.tables.TablesExtension;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.data.MutableDataSet;
+import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -21,10 +22,8 @@ import java.util.Arrays;
  *
  * @author YourName
  */
+@Component
 public class MarkdownParser implements FileParser {
-
-    // 【常量】支持的文件后缀名
-    private static final String EXTENSION = "md";
 
     // 【静态单例】解析器实例（类加载时初始化，线程安全）
     private static final Parser FLEXMARK_PARSER;
@@ -61,23 +60,4 @@ public class MarkdownParser implements FileParser {
         return new MdParseResult(FLEXMARK_PARSER.parse(mdContent));
     }
 
-    /**
-     * 【修复Bug】返回支持的文件后缀名
-     * 供策略工厂类识别当前解析器处理哪种文件
-     */
-    @Override
-    public String getSupportedExtension() {
-        return EXTENSION; // 原代码返回""，此处修正为返回常量
-    }
-
-    /**
-     * 校验是否支持该文件后缀
-     *
-     * @param fileExtension 不带点的后缀名（如 md, pdf）
-     */
-    @Override
-    public boolean supports(String fileExtension) {
-        // 防御性编程：防止传入null
-        return fileExtension != null && EXTENSION.equalsIgnoreCase(fileExtension);
-    }
 }

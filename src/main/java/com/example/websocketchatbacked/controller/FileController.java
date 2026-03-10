@@ -19,6 +19,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.ContentDisposition;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
@@ -224,9 +225,13 @@ public class FileController {
 
             fileTransactionServiceImpl.logOperation(userId, id, "download", request.getRemoteAddr(), "success", null);
 
+            ContentDisposition disposition = ContentDisposition.attachment()
+                    .filename(kbDocument.getFileName())
+                    .build();
+
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + kbDocument.getFileName() + "\"")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                     .body(resource);
 
         } catch (NotLoginException | NotPermissionException e) {
@@ -272,9 +277,13 @@ public class FileController {
 
             fileTransactionServiceImpl.logOperation(userId, documentId, "preview", request.getRemoteAddr(), "success", null);
 
+            ContentDisposition disposition = ContentDisposition.inline()
+                    .filename(kbDocument.getFileName())
+                    .build();
+
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType(contentType))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + kbDocument.getFileName() + "\"")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                     .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                     .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(fileSize))
                     .body(resource);
@@ -311,9 +320,13 @@ public class FileController {
 
             long contentLength = end - start + 1;
 
+            ContentDisposition disposition = ContentDisposition.inline()
+                    .filename(filename)
+                    .build();
+
             return ResponseEntity.status(206)
                     .contentType(MediaType.parseMediaType(contentType))
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
+                    .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                     .header(HttpHeaders.ACCEPT_RANGES, "bytes")
                     .header(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/" + fileSize)
                     .header(HttpHeaders.CONTENT_LENGTH, String.valueOf(contentLength))

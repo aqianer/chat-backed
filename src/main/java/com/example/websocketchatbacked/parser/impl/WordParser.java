@@ -1,62 +1,37 @@
-//package com.example.websocketchatbacked.parser.impl;
-//
-//import com.example.websocketchatbacked.parser.FileParser;
-//
-//import org.apache.poi.xwpf.usermodel.XWPFDocument;
-//import org.apache.poi.xwpf.usermodel.XWPFParagraph;
-//
-//import java.io.File;
-//import java.io.FileInputStream;
-//import java.io.IOException;
-//import java.util.List;
-//
-//public class WordParser implements FileParser {
-//
-//    private static final String DOC_EXTENSION = "doc";
-//    private static final String DOCX_EXTENSION = "docx";
-//
-//    @Override
-//    public String parse(File file) throws IOException {
-//        String fileName = file.getName().toLowerCase();
-//
-//        if (fileName.endsWith(DOCX_EXTENSION)) {
-//            return parseDocx(file);
-//        } else if (fileName.endsWith(DOC_EXTENSION)) {
-//            return parseDoc(file);
-//        }
-//
-//        throw new IOException("Unsupported Word file format: " + fileName);
-//    }
-//
-//    private String parseDocx(File file) throws IOException {
-//        StringBuilder content = new StringBuilder();
-//
-//        try (FileInputStream fis = new FileInputStream(file);
-//             XWPFDocument document = new XWPFDocument(fis)) {
-//
-//            List<XWPFParagraph> paragraphs = document.getParagraphs();
-//            for (XWPFParagraph paragraph : paragraphs) {
-//                content.append(paragraph.getText()).append("\n");
-//            }
-//        }
-//
-//        return content.toString();
-//    }
-//
-//    private String parseDoc(File file) throws IOException {
-//
-//
-//        return "";
-//
-//    }
-//
-//    @Override
-//    public String getSupportedExtension() {
-//        return DOCX_EXTENSION;
-//    }
-//
-//    @Override
-//    public boolean supports(String fileExtension) {
-//        return DOCX_EXTENSION.equalsIgnoreCase(fileExtension) || DOC_EXTENSION.equalsIgnoreCase(fileExtension);
-//    }
-//}
+package com.example.websocketchatbacked.parser.impl;
+
+import com.example.websocketchatbacked.parser.result.ParseResult;
+import com.example.websocketchatbacked.exception.BusinessException;
+import com.example.websocketchatbacked.parser.result.FileParser;
+import com.example.websocketchatbacked.parser.result.WordParseResult;
+import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.springframework.stereotype.Component;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.List;
+
+@Component
+public class WordParser implements FileParser {
+
+    @Override
+    public ParseResult parse(String filePath) throws IOException {
+        File file = new File(filePath);
+        StringBuilder content = new StringBuilder();
+
+        try {
+            FileInputStream fis = new FileInputStream(file);
+            XWPFDocument document = new XWPFDocument(fis);
+            List<XWPFParagraph> paragraphs = document.getParagraphs();
+            for (XWPFParagraph paragraph : paragraphs) {
+                content.append(paragraph.getText()).append("\n");
+            }
+        } catch (Exception e) {
+            throw new BusinessException(422, "word文件解析失败");
+        }
+        return new WordParseResult(content.toString());
+    }
+
+}
